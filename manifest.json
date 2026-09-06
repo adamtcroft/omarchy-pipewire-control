@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.adamtcroft.pipewire-control",
+  "name": "PipeWire Control",
+  "version": "1.0.0",
+  "author": "adamtcroft",
+  "description": "PipeWire clock controls and hardware status",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "BarWidget.qml"},
+  "barWidget": {
+    "displayName": "PipeWire Control",
+    "description": "Open sample rate, buffer and hardware information",
+    "category": "System",
+    "allowMultiple": false
+  }
+}
