@@ -1,6 +1,6 @@
 # PipeWire Control
 
-PipeWire Control is built for professional audio engineers using  DAWs such as [REAPER](https://www.reaper.fm/) and other Linux-native digital audio workstations. It provides quick access to PipeWire's sample-rate and block-size controls from the Omarchy bar, alongside live hardware and graph status.
+PipeWire Control is built for professional audio engineers using software such as [REAPER](https://www.reaper.fm/) and other Linux-native DAWs. It provides quick access to PipeWire's sample-rate and block-size controls from the Omarchy bar, alongside live hardware and graph status.
 
 ## Interface
 
