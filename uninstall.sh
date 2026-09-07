@@ -10,4 +10,4 @@ omarchy plugin disable io.github.adamtcroft.pipewire-control
 unlink "$target"
 omarchy-shell shell rescanPlugins
 echo 'Plugin removed. Source, saved audio defaults and current overrides are preserved.'
-echo 'Clear saved defaults before uninstalling using Clear in the popup, if desired.'
+echo 'Clear saved defaults before uninstalling using Clear defaults in the popup, if desired.'

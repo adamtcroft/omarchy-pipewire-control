@@ -11,7 +11,18 @@ import tempfile
 RATES = (0, 44100, 48000, 88200, 96000)
 BUFFERS = (0, 64, 128, 256, 512, 1024, 2048)
 MARKER = '# Owned by io.github.adamtcroft.pipewire-control\n'
-CONFIG = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'pipewire/pipewire.conf.d/90-pipewire-control.conf'
+
+
+def _config_root():
+    configured = os.environ.get('XDG_CONFIG_HOME')
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_absolute():
+            return candidate
+    return Path.home() / '.config'
+
+
+CONFIG = _config_root() / 'pipewire/pipewire.conf.d/90-pipewire-control.conf'
 
 
 def run(args):
@@ -60,10 +71,23 @@ def apply(rate, buffer):
         raise RuntimeError(f'Apply failed: {exc}. Rollback: {errors or "completed"}') from exc
 
 
+def _owned_content(path):
+    if path.is_symlink():
+        raise ValueError(f'Refusing to overwrite an unowned file: {path}')
+    try:
+        content = path.read_text(encoding='utf-8')
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f'Refusing to overwrite an unowned file: {path}') from exc
+    if not content.startswith(MARKER):
+        raise ValueError(f'Refusing to overwrite an unowned file: {path}')
+    return content
+
+
 def save(rate, buffer, path=CONFIG):
     validate(rate, buffer)
-    if path.is_symlink() or (path.exists() and not path.read_text().startswith(MARKER)):
-        raise ValueError(f'Refusing to overwrite an unowned file: {path}')
+    _owned_content(path)
     if rate == 0 and buffer == 0:
         path.unlink(missing_ok=True)
         return
@@ -76,7 +100,7 @@ def save(rate, buffer, path=CONFIG):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp = tempfile.mkstemp(dir=path.parent, prefix='.pipewire-control-')
     try:
-        with os.fdopen(fd, 'w') as stream:
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
             stream.write('\n'.join(lines))
         os.replace(temp, path)
     finally:
@@ -98,8 +122,11 @@ def snapshot():
     except (ValueError, subprocess.SubprocessError):
         pass
     saved = {}
-    if CONFIG.exists():
-        content = CONFIG.read_text()
+    try:
+        content = CONFIG.read_text(encoding='utf-8')
+    except (FileNotFoundError, OSError, UnicodeError):
+        content = ''
+    if content.startswith(MARKER):
         for key in ('rate', 'quantum'):
             match = re.search(r'default\.clock\.' + key + r'\s*=\s*(\d+)', content)
             if match:
@@ -123,7 +150,7 @@ def report():
         lines.append('S   ID' + run(['pw-top', '-b', '-n', '2']).split('S   ID')[-1])
     except Exception:
         lines.append('Live graph unavailable. Use pw-top in a terminal.')
-    lines += ['', 'STARTUP DEFAULTS', CONFIG.read_text() if CONFIG.exists() else 'Not set.']
+    lines += ['', 'SAVED DEFAULTS', CONFIG.read_text() if CONFIG.exists() else 'Not set.']
     return '\n'.join(lines)
 
 
@@ -138,7 +165,10 @@ def main():
             raise ValueError('Expected rate and buffer arguments')
         rate, buffer = int(sys.argv[2]), int(sys.argv[3])
         (apply if action == 'apply' else save)(rate, buffer)
-        print('Audio overrides applied.' if action == 'apply' else 'Startup defaults saved. Current audio unchanged.')
+        if action == 'apply':
+            print('Temporary overrides reset to automatic.' if rate == 0 and buffer == 0 else 'Temporary overrides applied.')
+        else:
+            print('Defaults cleared. Current audio unchanged.' if rate == 0 and buffer == 0 else 'Defaults saved. Current audio unchanged.')
     elif action == 'status':
         print(report())
     else:

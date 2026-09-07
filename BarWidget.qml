@@ -17,30 +17,64 @@ Panel {
     readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
     readonly property string helper: decodeURIComponent(Qt.resolvedUrl("control.py").toString().replace(/^file:\/\//, ""))
     property var info: ({settings: {}, devices: [], graph: [], saved: {}})
-    property int chosenRate: 44100
-    property int chosenBuffer: 128
+    property int chosenRate: 0
+    property int chosenBuffer: 0
+    property int defaultRate: 0
+    property int defaultBuffer: 0
+    property bool defaultsDirty: false
     property string pending: ""
+    property int pendingRate: 0
+    property int pendingBuffer: 0
+    property string actionKind: ""
     property string message: ""
     property bool failed: false
     property bool initialized: false
     readonly property bool busy: action.running
+    readonly property bool hasSavedDefaults: info.saved && Object.keys(info.saved).length > 0
     readonly property var device: info.devices.find(function(d) { return d.rates.length > 0 }) || (info.devices.length ? info.devices[0] : null)
     readonly property string activeRate: device && device.rates.length ? device.rates.map(function(r) { return (Number(r) / 1000) + " kHz" }).join(" / ") : "Idle"
     readonly property string validBits: device && device.bits.length ? device.bits.join(" / ") + "-bit" : "Unknown"
 
     function refresh() { if (!status.running) status.running = true }
-    function request(kind) { pending = kind; message = ""; failed = false }
+    function settingValue(value) {
+        var number = Number(value)
+        return isFinite(number) && number >= 0 ? number : 0
+    }
+    function savedValue(key) {
+        return settingValue((info.saved || {})[key])
+    }
+    function pairText(rate, buffer) {
+        return (rate ? rate / 1000 + " kHz" : "Auto rate") + " · " + (buffer ? buffer + " samples" : "Auto buffer")
+    }
+    function request(kind) {
+        if (busy || pending) return
+        pending = kind
+        pendingRate = kind === "apply" ? chosenRate : kind === "save" ? defaultRate : 0
+        pendingBuffer = kind === "apply" ? chosenBuffer : kind === "save" ? defaultBuffer : 0
+        message = ""
+        failed = false
+    }
     function execute() {
+        if (!pending || busy) return
         var kind = pending
+        var command = kind === "apply" || kind === "auto" ? "apply" : "save"
+        var rate = pendingRate
+        var buffer = pendingBuffer
         pending = ""
-        action.command = ["python3", helper, kind === "apply" || kind === "auto" ? "apply" : "save",
-                          String(kind === "auto" || kind === "remove" ? 0 : chosenRate),
-                          String(kind === "auto" || kind === "remove" ? 0 : chosenBuffer)]
+        actionKind = kind
+        action.command = ["python3", helper, command, String(rate), String(buffer)]
         action.running = true
     }
     onOpenedChanged: {
-        if (opened) refresh()
-        else pending = ""
+        if (opened) {
+            if (!defaultsDirty) {
+                defaultRate = savedValue("rate")
+                defaultBuffer = savedValue("quantum")
+            }
+            refresh()
+        } else {
+            pending = ""
+        }
     }
 
     Process {
@@ -51,11 +85,13 @@ Panel {
                 try {
                     root.info = JSON.parse(text)
                     if (!root.initialized) {
-                        var rate = Number(root.info.settings["clock.force-rate"] || 0)
-                        var buffer = Number(root.info.settings["clock.force-quantum"] || 0)
-                        root.chosenRate = rate || 44100
-                        root.chosenBuffer = buffer || 128
+                        root.chosenRate = root.settingValue(root.info.settings["clock.force-rate"])
+                        root.chosenBuffer = root.settingValue(root.info.settings["clock.force-quantum"])
                         root.initialized = true
+                    }
+                    if (!root.defaultsDirty) {
+                        root.defaultRate = root.savedValue("rate")
+                        root.defaultBuffer = root.savedValue("quantum")
                     }
                 } catch (e) { root.message = "Could not read audio status."; root.failed = true }
             }
@@ -66,7 +102,13 @@ Panel {
         id: action
         stdout: StdioCollector { onStreamFinished: if (text.trim()) root.message = text.trim() }
         stderr: StdioCollector { onStreamFinished: if (text.trim()) { root.message = text.trim(); root.failed = true } }
-        onExited: function(code) { root.failed = code !== 0; root.refresh() }
+        onExited: function(code) {
+            var completed = root.actionKind
+            root.failed = code !== 0
+            if (code === 0 && (completed === "save" || completed === "remove")) root.defaultsDirty = false
+            root.actionKind = ""
+            root.refresh()
+        }
     }
     Timer { interval: 5000; running: root.opened; repeat: true; onTriggered: root.refresh() }
     Component.onCompleted: refresh()
@@ -156,6 +198,7 @@ Panel {
                     }
                     Column {
                         width: parent.width; spacing: Style.space(6)
+                        Label { text: "Temporary audio settings"; font.bold: true }
                         Label { text: "Sample rate"; font.bold: true }
                         Flow {
                             width: parent.width; spacing: Style.space(4)
@@ -172,10 +215,7 @@ Panel {
                                 }
                             }
                         }
-                    }
-                    Column {
-                        width: parent.width; spacing: Style.space(6)
-                        Label { text: "Buffer · samples"; font.bold: true }
+                        Label { text: "Block size (samples)"; font.bold: true }
                         Flow {
                             width: parent.width; spacing: Style.space(4)
                             Repeater {
@@ -191,29 +231,61 @@ Panel {
                                 }
                             }
                         }
-                    }
-                    Label {
-                        text: "Overrides: " + (Number(root.info.settings["clock.force-rate"]) ? Number(root.info.settings["clock.force-rate"]) / 1000 + "k" : "auto rate") + " / " + (Number(root.info.settings["clock.force-quantum"]) || "auto buffer")
-                        color: root.dim; font.pixelSize: Style.font.bodySmall
-                    }
-                    Row {
-                        spacing: Style.space(8)
-                        visible: !root.pending
-                        Button { text: root.busy ? "Working…" : "Apply now"; iconText: "󰄬"; selected: true; focusable: true; enabled: !root.busy; foreground: root.foreground; onClicked: root.request("apply") }
-                        Button { text: "Reset to auto"; focusable: true; enabled: !root.busy; foreground: root.foreground; onClicked: root.request("auto") }
+                        Label {
+                            text: "Current overrides: " + (root.settingValue(root.info.settings["clock.force-rate"]) ? root.settingValue(root.info.settings["clock.force-rate"]) / 1000 + "k" : "auto rate") + " / " + (root.settingValue(root.info.settings["clock.force-quantum"]) ? root.settingValue(root.info.settings["clock.force-quantum"]) : "auto buffer")
+                            color: root.dim; font.pixelSize: Style.font.bodySmall
+                        }
+                        Row {
+                            spacing: Style.space(8)
+                            visible: !root.pending
+                            Button { text: root.busy && root.actionKind === "apply" ? "Working…" : "Apply now"; iconText: "󰄬"; selected: true; focusable: true; enabled: !root.busy; foreground: root.foreground; onClicked: root.request("apply") }
+                            Button { text: "Reset to auto"; focusable: true; enabled: !root.busy; foreground: root.foreground; onClicked: root.request("auto") }
+                        }
                     }
                     PanelSeparator { width: parent.width; foreground: root.foreground }
                     Column {
                         width: parent.width; spacing: Style.space(6)
-                        Label { text: "Startup defaults"; font.bold: true }
+                        Label { text: "Default audio settings"; font.bold: true }
                         Label {
-                            text: Object.keys(root.info.saved).length ? (root.info.saved.rate ? root.info.saved.rate / 1000 + " kHz" : "Automatic rate") + " · " + (root.info.saved.quantum || "Automatic") + " samples" : "Not set"
+                            text: root.defaultsDirty ? "Unsaved changes" : root.hasSavedDefaults ? "Saved: " + root.pairText(root.savedValue("rate"), root.savedValue("quantum")) : "Not saved"
                             color: root.dim; font.pixelSize: Style.font.bodySmall
+                        }
+                        Label { text: "Default sample rate"; font.bold: true }
+                        Flow {
+                            width: parent.width; spacing: Style.space(4)
+                            Repeater {
+                                model: [0, 44100, 48000, 88200, 96000]
+                                Button {
+                                    required property int modelData
+                                    text: modelData ? (modelData / 1000) + "k" : "Auto"
+                                    selected: root.defaultRate === modelData
+                                    focusable: true
+                                    enabled: !root.busy && !root.pending
+                                    foreground: root.foreground
+                                    onClicked: { root.defaultRate = modelData; root.defaultsDirty = true }
+                                }
+                            }
+                        }
+                        Label { text: "Default block size (samples)"; font.bold: true }
+                        Flow {
+                            width: parent.width; spacing: Style.space(4)
+                            Repeater {
+                                model: [0, 64, 128, 256, 512, 1024, 2048]
+                                Button {
+                                    required property int modelData
+                                    text: modelData ? String(modelData) : "Auto"
+                                    selected: root.defaultBuffer === modelData
+                                    focusable: true
+                                    enabled: !root.busy && !root.pending
+                                    foreground: root.foreground
+                                    onClicked: { root.defaultBuffer = modelData; root.defaultsDirty = true }
+                                }
+                            }
                         }
                         Row {
                             spacing: Style.space(8); visible: !root.pending
-                            Button { text: "Save selection"; iconText: "󰆓"; focusable: true; enabled: !root.busy; foreground: root.foreground; onClicked: root.request("save") }
-                            Button { text: "Clear"; focusable: true; enabled: !root.busy && Object.keys(root.info.saved).length > 0; foreground: root.foreground; onClicked: root.request("remove") }
+                            Button { text: root.busy && root.actionKind === "save" ? "Working…" : "Save defaults"; iconText: "󰆓"; focusable: true; enabled: !root.busy; foreground: root.foreground; onClicked: root.request("save") }
+                            Button { text: "Clear defaults"; focusable: true; enabled: !root.busy; foreground: root.foreground; onClicked: root.request("remove") }
                         }
                     }
                     Rectangle {
@@ -227,11 +299,11 @@ Panel {
                             x: Style.space(12); y: Style.space(12)
                             width: parent.width - Style.space(24); spacing: Style.space(10)
                             Label {
-                                text: root.pending === "apply" || root.pending === "auto" ? "Stop recording first. This will interrupt system audio." : "Save for the next audio service start? Current audio will not change."
+                                text: root.pending === "apply" || root.pending === "auto" ? "Stop recording first. This will interrupt system audio." : root.pending === "save" ? "Save these defaults? Current audio will not change." : "Clear saved defaults? Current audio will not change."
                                 font.bold: true
                             }
                             Label {
-                                text: root.pending === "auto" || root.pending === "remove" ? "Both settings will return to automatic." : (root.chosenRate ? root.chosenRate / 1000 + " kHz" : "Auto rate") + " · " + (root.chosenBuffer ? root.chosenBuffer + " samples" : "Auto buffer")
+                                text: root.pending === "remove" ? "Saved defaults will be cleared" : root.pairText(root.pendingRate, root.pendingBuffer)
                                 color: root.dim
                             }
                             Row {

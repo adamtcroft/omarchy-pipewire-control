@@ -1,8 +1,10 @@
 # PipeWire Control
 
-Sample-rate and buffer controls for the Omarchy bar.
+PipeWire Control is built for professional audio engineers using  DAWs such as [REAPER](https://www.reaper.fm/) and other Linux-native digital audio workstations. It provides quick access to PipeWire's sample-rate and block-size controls from the Omarchy bar, alongside live hardware and graph status.
 
-![PipeWire Control popup](preview.png)
+## Interface
+
+![PipeWire Control interface showing temporary and default audio settings](preview.png)
 
 ## Install
 
@@ -16,12 +18,13 @@ Click the equalizer icon in the bar to open the panel.
 
 ## Controls
 
-- **Apply now** sets temporary sample-rate and buffer overrides. Stop recording before confirming; changes affect all system audio.
+- **Temporary audio settings** choose a sample rate and block size for the current session.
+- **Apply now** sets those temporary overrides. Stop recording before confirming; changes affect all system audio.
 - **Reset to auto** clears temporary overrides.
-- **Save selection** writes startup defaults without restarting audio. They take effect when PipeWire next starts.
-- **Clear** removes this plugin's startup defaults, leaving current audio unchanged.
+- **Default audio settings** have their own sample-rate and block-size selectors.
+- **Save defaults** writes the selected defaults without restarting audio. **Clear defaults** removes this plugin's saved defaults; neither action changes current audio.
 
-Selecting a value does not apply it. **Auto** defers to PipeWire's other settings. Saving Auto for both values removes the plugin's defaults file. Applications can request a different buffer size when no temporary override is active.
+Selecting a value does not apply or save it until you confirm the corresponding action. **Auto** defers to PipeWire's other settings. Saving Auto for both values removes the plugin's defaults file. Applications can request a different buffer size when no temporary override is active.
 
 The status card shows a USB device's active rate and advertised valid bit depth, plus running graph driver buffer sizes. Bit depth is read-only. With multiple USB devices, the first active device is shown; graph buffer sizes may belong to other devices. Non-USB hardware details are not available in the card. For the full device and graph report, run `python3 control.py status` from the plugin directory.
 
@@ -29,7 +32,7 @@ Refresh status with the refresh button or middle-click the bar icon. The open pa
 
 ## Remove
 
-Clear saved defaults and reset temporary overrides first if you want to undo audio settings. Removing the widget alone preserves them.
+Use **Clear defaults** and **Reset to auto** first if you want to undo audio settings. Removing the widget alone preserves them.
 
 ```bash
 omarchy plugin remove io.github.adamtcroft.pipewire-control
@@ -39,7 +42,7 @@ omarchy plugin remove io.github.adamtcroft.pipewire-control
 
 The plugin reads PipeWire metadata, `pw-top` output and USB information from `/proc/asound`. Applying changes calls `pw-metadata` for the current user's audio session. Failed partial applies attempt to restore the previous overrides.
 
-Startup defaults are stored in:
+Saved defaults are stored in:
 
 ```text
 ~/.config/pipewire/pipewire.conf.d/90-pipewire-control.conf
