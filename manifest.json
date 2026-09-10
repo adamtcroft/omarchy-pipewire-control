@@ -4,7 +4,7 @@
   "name": "PipeWire Control",
   "version": "1.1.0",
   "author": "adamtcroft",
-  "description": "PipeWire clock controls and hardware status",
+  "description": "PipeWire audio clock controls and hardware status.  Set defaults and temporary overrides for working in your favorite DAW.",
   "kinds": ["bar-widget"],
   "entryPoints": {"barWidget": "BarWidget.qml"},
   "barWidget": {
